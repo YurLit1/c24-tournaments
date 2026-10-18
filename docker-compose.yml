@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: tournaments
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+    ports: ["5433:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d tournaments"]
+      interval: 2s
+      retries: 30
+
+  # застосовує migrations/V*.sql по порядку й завершується
+  migrate:
+    image: flyway/flyway:10
+    command: >
+      -url=jdbc:postgresql://postgres:5432/tournaments
+      -user=app -password=${POSTGRES_PASSWORD:-app}
+      -connectRetries=30 migrate
+    volumes: ["./migrations:/flyway/sql:ro"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  app-a:
+    build: ./web
+    environment:
+      INSTANCE: app-a
+      DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD:-app}@postgres:5432/tournaments
+    ports: ["8001:8000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  app-b:
+    build: ./web
+    environment:
+      INSTANCE: app-b
+      DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD:-app}@postgres:5432/tournaments
+    ports: ["8002:8000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  nginx:
+    image: nginx:1.27
+    volumes: ["./nginx/nginx.conf:/etc/nginx/nginx.conf:ro"]
+    ports: ["8080:80"]
+    depends_on: [app-a, app-b]
+
+  # сервіс api (DPC) додає учасник B
+
+volumes:
+  pgdata:

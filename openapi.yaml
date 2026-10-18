@@ -1,0 +1,275 @@
+openapi: 3.1.0
+info:
+  title: C24 Tournaments
+  version: 0.1.0
+  description: |
+    C24 «Ігрові турніри» — спільний проєкт курсів «Обмін даними у Web-застосунках» (tag web)
+    і «Розподілені та паралельні обчислення» (tag dpc).
+    До ЛР3 заголовок X-User-Id містить id заздалегідь створеного користувача
+    (гравці 00000000-0000-0000-0000-000000000001 … 000000000010).
+    Помилки — Problem Details (RFC 9457).
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://localhost:8080
+    description: nginx перед app-a і app-b
+tags:
+  - name: web
+    description: Частина Web — турніри та реєстрації
+  - name: dpc
+    description: Частина DPC — результати матчів і рейтинги (маршрути додає учасник B)
+  - name: service
+    description: Службові маршрути
+
+paths:
+  /health:
+    get:
+      tags: [service]
+      operationId: health
+      summary: Перевірка живучості процесу без звернення до бази
+      security: []
+      responses:
+        '200':
+          description: Процес живий
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+              examples:
+                ok: { value: { status: ok, instance: app-a } }
+
+  /v1/tournaments:
+    get:
+      tags: [web]
+      operationId: listTournaments
+      summary: Список турнірів із кількістю вільних місць
+      security: []
+      responses:
+        '200':
+          description: Турніри за часом початку
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TournamentList' }
+              examples:
+                ok:
+                  value:
+                    items:
+                      - id: 10000000-0000-0000-0000-000000000001
+                        game: Dota 2
+                        starts_at: '2027-06-05T09:00:00+00:00'
+                        time_zone: Europe/Kyiv
+                        slots: 64
+                        available: 64
+                        fee_minor: 5000
+                        currency: UAH
+                        registration_open: true
+                      - id: 10000000-0000-0000-0000-000000000002
+                        game: CS2
+                        starts_at: '2027-06-12T09:00:00+00:00'
+                        time_zone: Europe/Kyiv
+                        slots: 2
+                        available: 2
+                        fee_minor: 0
+                        currency: UAH
+                        registration_open: true
+        '500': { $ref: '#/components/responses/Problem' }
+
+  /v1/registrations:
+    post:
+      tags: [web]
+      operationId: createRegistration
+      summary: Зареєструватися на турнір (головна операція)
+      description: |
+        В одній транзакції умовним UPDATE списується вільне місце
+        (`available > 0`, реєстрацію відкрито, турнір не почався) і створюється
+        реєстрація в стані `held` до `expires_at` (+15 хвилин).
+        Відповідь 201 надсилається лише після COMMIT.
+        Власник реєстрації визначається за X-User-Id, а не за тілом запиту.
+      security: [{ UserId: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrationCreate' }
+            examples:
+              ok:
+                summary: Реєстрація на Dota 2
+                value: { tournament_id: 10000000-0000-0000-0000-000000000001, nickname: neo }
+              smallTournament:
+                summary: Турнір на 2 місця (третій гравець отримає 409)
+                value: { tournament_id: 10000000-0000-0000-0000-000000000002, nickname: trinity }
+      responses:
+        '201':
+          description: Реєстрацію створено, місце утримано
+          headers:
+            Location:
+              description: URL нової реєстрації
+              schema: { type: string }
+              example: /v1/registrations/6f1c2a7e-3b0d-4c55-9a43-2f1d0e9b8c71
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Registration' }
+              examples:
+                created:
+                  value:
+                    id: 6f1c2a7e-3b0d-4c55-9a43-2f1d0e9b8c71
+                    tournament_id: 10000000-0000-0000-0000-000000000001
+                    nickname: neo
+                    status: held
+                    version: 1
+                    created_at: '2026-10-17T20:00:00.000000+00:00'
+                    expires_at: '2026-10-17T20:15:00.000000+00:00'
+        '400':
+          description: Тіло — не JSON
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                malformed:
+                  value: { type: about:blank, title: Malformed JSON, status: 400, detail: Request body is not valid JSON, instance: /v1/registrations }
+        '404':
+          description: Турніру немає
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                notFound:
+                  value: { type: about:blank, title: Tournament not found, status: 404, detail: No tournament 10000000-0000-0000-0000-000000000777, instance: /v1/registrations }
+        '409':
+          description: Місць немає / реєстрацію закрито / гравець або нікнейм уже зареєстровані
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                noSlots:
+                  value: { type: about:blank, title: No free slots, status: 409, detail: Registration is closed or all slots are taken, instance: /v1/registrations }
+                alreadyRegistered:
+                  value: { type: about:blank, title: Already registered, status: 409, detail: Active registration of this player or this nickname already exists, instance: /v1/registrations }
+        '422':
+          description: Неправильні дані (нікнейм поза 3–32 символами, id не UUID, немає X-User-Id, невідомий користувач)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                badNickname:
+                  value: { type: about:blank, title: Invalid data, status: 422, detail: 'body.nickname: String should have at least 3 characters', instance: /v1/registrations }
+        '500': { $ref: '#/components/responses/Problem' }
+
+  /v1/registrations/{registration_id}:
+    get:
+      tags: [web]
+      operationId: getRegistration
+      summary: Власна реєстрація за id
+      security: [{ UserId: [] }]
+      parameters:
+        - name: registration_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          example: 6f1c2a7e-3b0d-4c55-9a43-2f1d0e9b8c71
+      responses:
+        '200':
+          description: Реєстрація
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Registration' }
+              examples:
+                held:
+                  value:
+                    id: 6f1c2a7e-3b0d-4c55-9a43-2f1d0e9b8c71
+                    tournament_id: 10000000-0000-0000-0000-000000000001
+                    nickname: neo
+                    status: held
+                    version: 1
+                    created_at: '2026-10-17T20:00:00.000000+00:00'
+                    expires_at: '2026-10-17T20:15:00.000000+00:00'
+        '404':
+          description: Такої реєстрації немає або вона чужа
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                notFound:
+                  value: { type: about:blank, title: Registration not found, status: 404, detail: No registration 6f1c2a7e-3b0d-4c55-9a43-2f1d0e9b8c71, instance: /v1/registrations/6f1c2a7e-3b0d-4c55-9a43-2f1d0e9b8c71 }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  # ---- маршрути DPC (tag dpc) додає учасник B нижче цього рядка ----
+
+components:
+  securitySchemes:
+    UserId:
+      type: apiKey
+      in: header
+      name: X-User-Id
+      description: До ЛР3 — id заздалегідь створеного користувача
+    # Bearer (токен сервісу api) додає учасник B разом із маршрутами DPC
+
+  responses:
+    Problem:
+      description: Помилка у форматі RFC 9457
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            invalid:
+              value: { type: about:blank, title: Invalid data, status: 422, detail: 'header.x-user-id: Field required', instance: /v1/registrations }
+
+  schemas:
+    Problem:
+      type: object
+      description: Problem Details (RFC 9457)
+      required: [type, title, status]
+      properties:
+        type: { type: string, example: about:blank }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+
+    Health:
+      type: object
+      required: [status, instance]
+      properties:
+        status: { type: string, enum: [ok] }
+        instance: { type: string, description: 'app-a або app-b' }
+
+    Tournament:
+      type: object
+      required: [id, game, starts_at, time_zone, slots, available, fee_minor, currency, registration_open]
+      properties:
+        id: { type: string, format: uuid }
+        game: { type: string }
+        starts_at: { type: string, format: date-time, description: Момент початку (ISO 8601) }
+        time_zone: { type: string, description: Назва часової зони турніру (IANA), example: Europe/Kyiv }
+        slots: { type: integer, minimum: 1 }
+        available: { type: integer, minimum: 0, description: 'Вільні місця, 0 ≤ available ≤ slots' }
+        fee_minor: { type: integer, format: int64, minimum: 0, description: Внесок у копійках }
+        currency: { type: string, pattern: '^[A-Z]{3}$', example: UAH }
+        registration_open: { type: boolean }
+
+    TournamentList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Tournament' }
+
+    RegistrationCreate:
+      type: object
+      required: [tournament_id, nickname]
+      properties:
+        tournament_id: { type: string, format: uuid }
+        nickname: { type: string, minLength: 3, maxLength: 32 }
+
+    Registration:
+      type: object
+      required: [id, tournament_id, nickname, status, version, created_at, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        tournament_id: { type: string, format: uuid }
+        nickname: { type: string }
+        status: { type: string, enum: [held, confirmed, expired, cancelled] }
+        version: { type: integer, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time, description: Сплатити внесок до цього моменту }
