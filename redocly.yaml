@@ -1,8 +1,5 @@
-# Налаштування лінтера: npx @redocly/cli@latest lint openapi.yaml
 extends:
   - recommended
 rules:
-  # навчальний проєкт запускається локально, сервер — nginx на localhost:8080
   no-server-example.com: off
-  # /health і /v1/tournaments не приймають вхідних даних, 4XX у них не буває
   operation-4xx-response: off

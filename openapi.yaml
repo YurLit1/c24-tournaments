@@ -193,8 +193,6 @@ paths:
                   value: { type: about:blank, title: Registration not found, status: 404, detail: No registration 6f1c2a7e-3b0d-4c55-9a43-2f1d0e9b8c71, instance: /v1/registrations/6f1c2a7e-3b0d-4c55-9a43-2f1d0e9b8c71 }
         '422': { $ref: '#/components/responses/Problem' }
 
-  # ---- маршрути DPC (tag dpc) додає учасник B нижче цього рядка ----
-
 components:
   securitySchemes:
     UserId:
@@ -202,7 +200,6 @@ components:
       in: header
       name: X-User-Id
       description: До ЛР3 — id заздалегідь створеного користувача
-    # Bearer (токен сервісу api) додає учасник B разом із маршрутами DPC
 
   responses:
     Problem:

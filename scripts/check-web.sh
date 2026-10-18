@@ -1,7 +1,3 @@
-#!/usr/bin/env bash
-# Перевірка пунктів Web ЛР1 через nginx. Запуск (Git Bash, система вже запущена):
-#   bash scripts/check-web.sh
-# Перед перевіркою турнір CS2 (2 місця) повертається до початкового стану.
 set -u
 BASE=${BASE:-http://localhost:8080}
 T1=10000000-0000-0000-0000-000000000001
@@ -16,7 +12,6 @@ docker compose exec -T postgres psql -q -U app -d tournaments -c \
   "DELETE FROM registration WHERE tournament_id = '$T2'; UPDATE tournament SET available = slots WHERE id = '$T2';" \
   || { echo "не вдалося скинути дані: система запущена?"; exit 1; }
 
-# expect <назва> <код> <тип відповіді або -> <аргументи curl…>
 expect() {
   local name=$1 code=$2 ctype=$3; shift 3
   local out; out=$(curl -s -i "$@" | tr -d '\r')
@@ -43,7 +38,6 @@ expect "POST: турніру немає"                404 application/problem+
 expect "POST: другий гравець"               201 application/json     -X POST "$BASE/v1/registrations" -H "$P2" -H "$JSON" -d "{\"tournament_id\":\"$T2\",\"nickname\":\"trinity\"}"
 expect "POST: третій гравець, місць немає"  409 application/problem+json -X POST "$BASE/v1/registrations" -H "$P3" -H "$JSON" -d "{\"tournament_id\":\"$T2\",\"nickname\":\"morpheus\"}"
 
-# балансування: за 6 запитів мають відповісти обидва екземпляри
 inst=$(for i in 1 2 3 4 5 6; do curl -s "$BASE/health"; echo; done | grep -o 'app-[ab]' | sort -u | tr '\n' ' ')
 [ "$inst" = "app-a app-b " ] && echo "OK   nginx передає запити app-a і app-b" || { echo "FAIL балансування: $inst"; fail=1; }
 

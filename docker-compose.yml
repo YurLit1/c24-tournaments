@@ -12,7 +12,6 @@ services:
       interval: 2s
       retries: 30
 
-  # застосовує migrations/V*.sql по порядку й завершується
   migrate:
     image: flyway/flyway:10
     command: >
@@ -47,7 +46,6 @@ services:
     ports: ["8080:80"]
     depends_on: [app-a, app-b]
 
-  # сервіс api (DPC) додає учасник B
 
 volumes:
   pgdata:
