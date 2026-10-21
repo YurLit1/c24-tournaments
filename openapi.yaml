@@ -4,7 +4,7 @@ info:
   version: 0.1.0
   description: |
     C24 «Ігрові турніри» — спільний проєкт курсів «Обмін даними у Web-застосунках» (tag web)
-    і «Розподілені та паралельні обчислення» (tag dpc).
+    і «Технології розподілених систем та паралельних обчислень» (tag dpc).
     До ЛР3 заголовок X-User-Id містить id заздалегідь створеного користувача
     (гравці 00000000-0000-0000-0000-000000000001 … 000000000010).
     Помилки — Problem Details (RFC 9457).
@@ -79,6 +79,7 @@ paths:
       tags: [web]
       operationId: createRegistration
       summary: Зареєструватися на турнір (головна операція)
+      x-course: main
       description: |
         В одній транзакції умовним UPDATE списується вільне місце
         (`available > 0`, реєстрацію відкрито, турнір не почався) і створюється
@@ -92,12 +93,16 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/RegistrationCreate' }
             examples:
-              ok:
-                summary: Реєстрація на Dota 2
+              normal:
+                summary: Турнір Dota 2, місць достатньо
                 value: { tournament_id: 10000000-0000-0000-0000-000000000001, nickname: neo }
-              smallTournament:
-                summary: Турнір на 2 місця (третій гравець отримає 409)
+              scarce:
+                summary: Турнір CS2 на 2 місця — для досліду гонки й 409
                 value: { tournament_id: 10000000-0000-0000-0000-000000000002, nickname: trinity }
+                x-capacity: 2
+              missing:
+                summary: Такого турніру немає — 404
+                value: { tournament_id: 10000000-0000-0000-0000-000000000777, nickname: neo }
       responses:
         '201':
           description: Реєстрацію створено, місце утримано
@@ -160,6 +165,7 @@ paths:
       tags: [web]
       operationId: getRegistration
       summary: Власна реєстрація за id
+      x-course: object
       security: [{ UserId: [] }]
       parameters:
         - name: registration_id

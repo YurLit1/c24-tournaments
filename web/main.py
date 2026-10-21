@@ -1,9 +1,3 @@
-"""Сервер Web (app-a, app-b): C24 Ігрові турніри, ЛР1.
-
-О1.4 — POST /v1/registrations: списання місця й запис реєстрації в одній транзакції.
-О1.6 — GET /health без бази, X-Request-ID, журнал JSON.
-Помилки — Problem Details (RFC 9457), media type application/problem+json.
-"""
 import json
 import os
 import time
@@ -20,7 +14,7 @@ from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 INSTANCE = os.getenv("INSTANCE", "local")
-HOLD_MINUTES = 15  
+HOLD_MINUTES = 15
 
 
 @asynccontextmanager
@@ -53,7 +47,7 @@ async def access_log(request: Request, call_next):
         "instance": INSTANCE,
         "request_id": rid,
         "method": request.method,
-        "route": route.path if route else request.url.path, 
+        "route": route.path if route else request.url.path,
         "status": response.status_code,
         "duration_ms": round((time.perf_counter() - start) * 1000, 2),
     }), flush=True)
@@ -101,7 +95,6 @@ async def on_unexpected(request: Request, exc: Exception):
 
 
 def to_json(row: asyncpg.Record) -> dict:
-    """UUID → рядок, timestamptz → ISO 8601; решта без змін."""
     out = {}
     for k, v in dict(row).items():
         if isinstance(v, uuid.UUID):
@@ -115,7 +108,7 @@ def to_json(row: asyncpg.Record) -> dict:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "instance": INSTANCE}  
+    return {"status": "ok", "instance": INSTANCE}
 
 
 @app.get("/v1/tournaments")
@@ -169,6 +162,6 @@ async def get_registration(registration_id: uuid.UUID, x_user_id: uuid.UUID = He
     reg = await app.state.pool.fetchrow(
         f"SELECT {REG_COLUMNS} FROM registration WHERE id = $1 AND user_id = $2",
         registration_id, x_user_id)
-    if reg is None:  
+    if reg is None:
         raise ProblemError(404, "Registration not found", f"No registration {registration_id}")
     return to_json(reg)
