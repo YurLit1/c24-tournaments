@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>C24 Ігрові турніри</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 24px auto; padding: 0 16px; color: #1d1d1f; }
+    h1 { font-size: 22px; }
+    label { display: block; margin: 14px 0 4px; font-weight: 600; }
+    select, input, button { font: inherit; padding: 6px 8px; }
+    select, input { width: 100%; box-sizing: border-box; }
+    table { border-collapse: collapse; width: 100%; margin-top: 4px; }
+    th, td { border-bottom: 1px solid #ddd; padding: 6px; text-align: left; }
+    tr.pick { cursor: pointer; }
+    tr.pick:hover { background: #f2f6ff; }
+    tr.selected { background: #dce8ff; }
+    button { margin-top: 16px; cursor: pointer; }
+    #result { margin-top: 16px; padding: 12px; border-radius: 6px; display: none; white-space: pre-wrap; }
+    #result.ok { display: block; background: #e7f6ea; border: 1px solid #8fd19e; }
+    #result.err { display: block; background: #fdecea; border: 1px solid #f5a3a3; }
+  </style>
+</head>
+<body>
+  <h1>C24 Ігрові турніри — реєстрація</h1>
+
+  <label for="player">Гравець (X-User-Id)</label>
+  <select id="player"></select>
+
+  <label>Турнір</label>
+  <table>
+    <thead><tr><th>Гра</th><th>Початок</th><th>Вільно</th><th>Внесок</th></tr></thead>
+    <tbody id="tournaments"><tr><td colspan="4">Завантаження…</td></tr></tbody>
+  </table>
+  <button id="reload" type="button">Оновити список</button>
+
+  <label for="nickname">Нікнейм (3–32 символи)</label>
+  <input id="nickname" value="neo">
+
+  <button id="register" type="button">Зареєструватися</button>
+
+  <div id="result"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
