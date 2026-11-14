@@ -321,6 +321,67 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
 
+  /v1/compute:
+    post:
+      tags: [dpc]
+      operationId: startCompute
+      summary: Паралельний розрахунок інтеграла картки (ЛР2)
+      description: |
+        Інтеграл N(t) = N0 + N1·cos(πt/84) на [a; b], n частин, workers процесів.
+        mode — спосіб об'єднання сум: local (локальні суми), lock (спільна сума з блокуванням),
+        none (спільна сума без синхронізації, лише для досліду О2.4). pool=warm — пул процесів, створений заздалегідь.
+      servers: [{ url: http://localhost:8090 }]
+      security: [{ Bearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ComputeCreate' }
+            examples:
+              normal:
+                summary: Гравце-години за тиждень, 4 процеси
+                value: { a: 0, b: 168, n: 24000000, workers: 4, method: midpoint, order: forward, mode: local }
+      responses:
+        '200':
+          description: Розрахунок виконано
+          headers:
+            Location:
+              description: URL результату
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComputeJob' }
+              examples:
+                done:
+                  value:
+                    id: 0b6f7c1e-2f4a-4c8e-9d61-1a2b3c4d5e6f
+                    state: done
+                    result: { value: 201600.000000003, reference: 201600.0, error: 3.26e-09, wall_s: 0.408, workers: 4 }
+        '401': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/compute/{job_id}:
+    get:
+      tags: [dpc]
+      operationId: getCompute
+      summary: Результат розрахунку
+      servers: [{ url: http://localhost:8090 }]
+      security: [{ Bearer: [] }]
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema: { type: string }
+          example: 0b6f7c1e-2f4a-4c8e-9d61-1a2b3c4d5e6f
+      responses:
+        '200':
+          description: Результат
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComputeJob' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
 components:
   securitySchemes:
     UserId:
@@ -441,3 +502,37 @@ components:
         invariant_ok:
           type: boolean
           description: 'Сума рейтингів усіх гравців = 1500 × кількість гравців і сума version = 2 × кількість застосованих результатів'
+
+    ComputeCreate:
+      type: object
+      properties:
+        a: { type: number, default: 0 }
+        b: { type: number, default: 168 }
+        n: { type: integer, minimum: 2, maximum: 200000000, description: Кількість частин поділу проміжку }
+        workers: { type: integer, minimum: 1, maximum: 16 }
+        method: { type: string, enum: [midpoint, trapezoid, simpson] }
+        order: { type: string, enum: [forward, reverse], description: Порядок сумування }
+        mode: { type: string, enum: [local, lock, none], description: Спосіб об'єднання сум }
+        pool: { type: string, enum: [fresh, warm] }
+
+    ComputeJob:
+      type: object
+      required: [id, state, result]
+      properties:
+        id: { type: string }
+        state: { type: string, enum: [done] }
+        result:
+          type: object
+          required: [value, reference, error, wall_s, workers]
+          properties:
+            value: { type: number }
+            reference: { type: number, description: Значення через первісну }
+            error: { type: number, description: Абсолютна похибка }
+            wall_s: { type: number, description: 'Час розрахунку в сервісі, с' }
+            workers: { type: integer }
+            timing:
+              type: object
+              properties:
+                compute_s: { type: number }
+                overhead_s: { type: number }
+                merge_s: { type: number }

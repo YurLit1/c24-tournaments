@@ -1,17 +1,22 @@
 import asyncio
+import json
 import os
 import random
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 
 import asyncpg
-from fastapi import Depends, FastAPI, Header, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, model_validator
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import compute
 import rating
 
 QUEUE_CAPACITY = int(os.getenv("QUEUE_CAPACITY", "50"))
@@ -24,6 +29,7 @@ RETRY_AFTER_S = 1
 async def lifespan(app: FastAPI):
     app.state.pool = await asyncpg.create_pool(os.environ["DATABASE_URL"], min_size=2, max_size=WORKERS + 10)
     app.state.queue = asyncio.Queue(maxsize=QUEUE_CAPACITY)
+    app.state.jobs = {}
     app.state.workers = [asyncio.create_task(worker()) for _ in range(WORKERS)]
     yield
     for w in app.state.workers:
@@ -70,11 +76,16 @@ async def on_http(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(Exception)
 async def on_unexpected(request: Request, exc: Exception):
+    print(json.dumps({"time": datetime.now(timezone.utc).isoformat(), "event": "request.crash",
+                      "path": request.url.path, "error": type(exc).__name__, "message": str(exc)[:300]}), flush=True)
     return problem(request, 500, "Internal Server Error", "Unexpected error")
 
 
-def auth(authorization: str = Header(default="")):
-    if authorization != f"Bearer {API_TOKEN}":
+bearer = HTTPBearer(auto_error=False)
+
+
+def auth(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    if credentials is None or credentials.credentials != API_TOKEN:
         raise ProblemError(401, "Unauthorized", "Missing or invalid bearer token",
                            {"WWW-Authenticate": "Bearer"})
 
@@ -156,6 +167,43 @@ async def get_player_rating(player_id: uuid.UUID):
     if row is None:
         raise ProblemError(404, "Player not found", f"No rating for player {player_id}")
     return to_json(row)
+
+
+class ComputeIn(BaseModel):
+    a: float = 0.0
+    b: float = 168.0
+    n: int = Field(default=1_000_000, ge=2, le=200_000_000)
+    workers: int = Field(default=1, ge=1, le=16)
+    method: Literal["midpoint", "trapezoid", "simpson"] = "midpoint"
+    order: Literal["forward", "reverse"] = "forward"
+    mode: Literal["local", "lock", "none"] = "local"
+    pool: Literal["fresh", "warm"] = "fresh"
+
+    @model_validator(mode="after")
+    def check(self):
+        if self.b <= self.a:
+            raise ValueError("b must be greater than a")
+        if self.method == "simpson" and self.n % 2:
+            raise ValueError("simpson needs an even n")
+        return self
+
+
+@app.post("/v1/compute", dependencies=[Depends(auth)])
+async def start_compute(body: ComputeIn):
+    job_id = str(uuid.uuid4())
+    result = await asyncio.to_thread(compute.run, body.a, body.b, body.n, body.workers,
+                                     body.method, body.order, body.mode, body.pool)
+    job = {"id": job_id, "state": "done", "result": result}
+    app.state.jobs[job_id] = job
+    return JSONResponse(job, headers={"Location": f"/v1/compute/{job_id}"})
+
+
+@app.get("/v1/compute/{job_id}", dependencies=[Depends(auth)])
+async def get_compute(job_id: str):
+    job = app.state.jobs.get(job_id)
+    if job is None:
+        raise ProblemError(404, "Compute job not found", f"No compute job {job_id}")
+    return job
 
 
 async def set_state(req_id: uuid.UUID, state: str, reason: str | None = None):

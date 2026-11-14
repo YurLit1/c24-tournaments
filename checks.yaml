@@ -27,3 +27,12 @@ dpc:
   resource:
     path: /v1/player-rating/00000000-0000-0000-0000-000000000001
     ok_field: invariant_ok
+  compute:
+    tolerance: 1.0e-9
+    bench_n: 24000000
+    modes:
+      param: mode
+      values:
+        - none
+        - lock
+        - local
