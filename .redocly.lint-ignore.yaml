@@ -1,0 +1,3 @@
+openapi.yaml:
+  no-invalid-media-type-examples:
+    - '#/paths/~1v1~1match-results/post/requestBody/content/application~1json/examples/normal/value/match_id'
