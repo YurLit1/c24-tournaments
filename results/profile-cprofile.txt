@@ -1,0 +1,13 @@
+cProfile, main process of compute.run: 10 runs, n=6000000, workers=4, pool=fresh
+   1.226s cumulative    10 calls  run (compute.py:111)
+   1.219s cumulative    10 calls  __exit__ (_base.py:646)
+   1.186s cumulative    10 calls  shutdown (process.py:856)
+   1.182s cumulative    20 calls  join (threading.py:1117)
+   1.181s cumulative    10 calls  run (process.py:339)
+   0.068s cumulative    40 calls  _adjust_process_count (process.py:768)
+   0.068s cumulative    40 calls  _spawn_process (process.py:791)
+   0.058s cumulative    40 calls  _launch (popen_forkserver.py:41)
+   0.038s cumulative    40 calls  submit (process.py:802)
+   0.008s cumulative    40 calls  join (process.py:142)
+   0.001s cumulative    40 calls  result (_base.py:428)
+   0.001s cumulative    10 calls  run (threading.py:1001)
