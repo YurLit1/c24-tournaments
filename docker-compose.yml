@@ -55,6 +55,7 @@ services:
       RATING_SYNC: ${RATING_SYNC:-lock}
       API_TOKEN: ${API_TOKEN:-dev-token}
     ports: ["${API_PORT:-8090}:8000"]
+    cap_add: [SYS_PTRACE]
     depends_on:
       migrate: { condition: service_completed_successfully }
 
