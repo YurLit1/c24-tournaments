@@ -382,6 +382,59 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
 
+  /v1/season-awards:
+    get:
+      tags: [dpc]
+      operationId: listSeasonAwards
+      summary: Видані сезонні нагороди (ефект ЛР3, ключ player_id + season)
+      servers: [{ url: http://localhost:8090 }]
+      security: [{ Bearer: [] }]
+      parameters:
+        - name: season
+          in: query
+          required: false
+          schema: { type: string }
+          example: 2026-autumn
+      responses:
+        '200':
+          description: Нагороди сезону
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeasonAwards' }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /internal/effects:
+    post:
+      tags: [dpc]
+      operationId: receiveEffect
+      summary: Приймач ефекту від виконавця Ray (ЛР3)
+      description: |
+        В одній транзакції: захист від повтору за match_id, зміна рейтингів, сезонна нагорода за (player_id, season),
+        запис рішення. Повторна доставка того самого ефекту повертає збережене рішення з repeat=true.
+      servers: [{ url: http://localhost:8090 }]
+      security: [{ Bearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Effect' }
+            examples:
+              normal:
+                value:
+                  request_id: 3f0c6a51-7d2e-4f8a-b1c4-5e6d7f8a9b0c
+                  match_id: 20000000-0000-0000-0000-000000000001
+                  winner_id: 00000000-0000-0000-0000-000000000001
+                  loser_id: 00000000-0000-0000-0000-000000000002
+                  season: 2026-autumn
+      responses:
+        '200':
+          description: Рішення приймача
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EffectDecision' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
 components:
   securitySchemes:
     UserId:
@@ -536,3 +589,40 @@ components:
                 compute_s: { type: number }
                 overhead_s: { type: number }
                 merge_s: { type: number }
+
+    SeasonAwards:
+      type: object
+      required: [season, count, items]
+      properties:
+        season: { type: string }
+        count: { type: integer }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              player_id: { type: string, format: uuid }
+              season: { type: string }
+              match_id: { type: string, format: uuid }
+              request_id: { type: string, format: uuid }
+              awarded_at: { type: string, format: date-time }
+
+    Effect:
+      type: object
+      required: [request_id, match_id, winner_id, loser_id, season]
+      properties:
+        request_id: { type: string, format: uuid }
+        match_id: { type: string, format: uuid }
+        winner_id: { type: string, format: uuid }
+        loser_id: { type: string, format: uuid }
+        season: { type: string }
+
+    EffectDecision:
+      type: object
+      required: [request_id, match_id, delta, awarded, repeat]
+      properties:
+        request_id: { type: string, format: uuid }
+        match_id: { type: string, format: uuid }
+        delta: { type: integer, description: Зміна рейтингу переможця }
+        awarded: { type: boolean, description: Чи видано сезонну нагороду цим ефектом }
+        repeat: { type: boolean, description: Повторна доставка — повернуто збережене рішення }

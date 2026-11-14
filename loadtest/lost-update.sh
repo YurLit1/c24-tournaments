@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 PY=${PY:-$(command -v py || command -v python3 || command -v python)}
 N=${N:-500}
 EXP="docker compose -p c24-exp"
-export API_PORT=8091 PG_PORT=5434 WORKERS=${WORKERS:-8} QUEUE_CAPACITY=2000
+export API_PORT=8091 PG_PORT=5434 RAY_DASHBOARD_PORT=8266 EXECUTION=local WORKERS=${WORKERS:-8} QUEUE_CAPACITY=2000
 
 for mode in none lock; do
   echo

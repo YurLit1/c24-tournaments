@@ -14,8 +14,13 @@ def elo_delta(r_win: int, r_lose: int, k: int = 32) -> int:
     return max(1, round(k * (1 - expected)))
 
 
-async def apply_rating(pool: asyncpg.Pool, request_id: uuid.UUID, match_id: uuid.UUID,
-                       winner_id: uuid.UUID, loser_id: uuid.UUID) -> bool:
+def _decision(row: asyncpg.Record, repeat: bool) -> dict:
+    return {"request_id": str(row["request_id"]), "match_id": str(row["match_id"]),
+            "delta": row["delta"], "awarded": row["awarded"], "repeat": repeat}
+
+
+async def apply_effect(pool: asyncpg.Pool, request_id: uuid.UUID, match_id: uuid.UUID,
+                       winner_id: uuid.UUID, loser_id: uuid.UUID, season: str) -> dict:
     lock = "FOR UPDATE" if RATING_SYNC == "lock" else ""
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -23,7 +28,10 @@ async def apply_rating(pool: asyncpg.Pool, request_id: uuid.UUID, match_id: uuid
                 "INSERT INTO match_result_applied (match_id, request_id) VALUES ($1, $2) "
                 "ON CONFLICT DO NOTHING RETURNING 1", match_id, request_id)
             if not first:
-                return False
+                saved = await conn.fetchrow(
+                    "SELECT match_id, request_id, delta, awarded FROM match_result_applied WHERE match_id = $1",
+                    match_id)
+                return _decision(saved, repeat=True)
             rows = await conn.fetch(
                 f"SELECT player_id, rating, version FROM player_rating "
                 f"WHERE player_id = ANY($1::uuid[]) ORDER BY player_id {lock}", [winner_id, loser_id])
@@ -35,7 +43,13 @@ async def apply_rating(pool: asyncpg.Pool, request_id: uuid.UUID, match_id: uuid
                 await conn.execute(
                     "UPDATE player_rating SET rating = $2, version = $3 WHERE player_id = $1",
                     pid, r[pid]["rating"] + delta, r[pid]["version"] + 1)
-    return True
+            awarded = bool(await conn.fetchval(
+                "INSERT INTO season_award (player_id, season, match_id, request_id) VALUES ($1, $2, $3, $4) "
+                "ON CONFLICT DO NOTHING RETURNING 1", winner_id, season, match_id, request_id))
+            saved = await conn.fetchrow(
+                "UPDATE match_result_applied SET delta = $2, awarded = $3 WHERE match_id = $1 "
+                "RETURNING match_id, request_id, delta, awarded", match_id, d, awarded)
+    return _decision(saved, repeat=False)
 
 
 async def rating_state(pool: asyncpg.Pool, player_id: uuid.UUID) -> asyncpg.Record | None:

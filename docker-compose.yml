@@ -1,3 +1,21 @@
+x-dpc: &dpc
+  build: ./dpc
+  image: c24-dpc:dev
+  environment:
+    DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD:-app}@postgres:5432/tournaments
+    QUEUE_CAPACITY: ${QUEUE_CAPACITY:-50}
+    WORKERS: ${WORKERS:-4}
+    RATING_SYNC: ${RATING_SYNC:-lock}
+    API_TOKEN: ${API_TOKEN:-dev-token}
+    EXECUTION: ${EXECUTION:-ray}
+    RAY_ADDRESS: ray://ray-head:10001
+    RECEIVER_URL: http://api:8000
+    SEASON: ${SEASON:-2026-autumn}
+    FAULTS: "on"
+  volumes: ["faults:/faults"]
+  shm_size: 1g
+  restart: unless-stopped
+
 services:
   postgres:
     image: postgres:16
@@ -47,17 +65,24 @@ services:
     depends_on: [app-a, app-b]
 
   api:
-    build: ./dpc
-    environment:
-      DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD:-app}@postgres:5432/tournaments
-      QUEUE_CAPACITY: ${QUEUE_CAPACITY:-50}
-      WORKERS: ${WORKERS:-4}
-      RATING_SYNC: ${RATING_SYNC:-lock}
-      API_TOKEN: ${API_TOKEN:-dev-token}
+    <<: *dpc
     ports: ["${API_PORT:-8090}:8000"]
     cap_add: [SYS_PTRACE]
     depends_on:
       migrate: { condition: service_completed_successfully }
+      ray-head: { condition: service_started }
+
+  ray-head:
+    <<: *dpc
+    command: ["ray", "start", "--head", "--port=6379", "--ray-client-server-port=10001",
+              "--dashboard-host=0.0.0.0", "--num-cpus=${RAY_HEAD_CPUS:-1}", "--block"]
+    ports: ["${RAY_DASHBOARD_PORT:-8265}:8265"]
+
+  ray-worker:
+    <<: *dpc
+    command: ["ray", "start", "--address=ray-head:6379", "--num-cpus=${RAY_WORKER_CPUS:-2}", "--block"]
+    depends_on: [ray-head]
 
 volumes:
   pgdata:
+  faults:

@@ -23,6 +23,22 @@ QUEUE_CAPACITY = int(os.getenv("QUEUE_CAPACITY", "50"))
 WORKERS = int(os.getenv("WORKERS", "4"))
 API_TOKEN = os.getenv("API_TOKEN", "dev-token")
 RETRY_AFTER_S = 1
+EXECUTION = os.getenv("EXECUTION", "local")
+RAY_ADDRESS = os.getenv("RAY_ADDRESS", "ray://ray-head:10001")
+SEASON = os.getenv("SEASON", "2026-autumn")
+RAY_TIMEOUT_S = float(os.getenv("RAY_TIMEOUT_S", "120"))
+
+
+def connect_ray() -> None:
+    import ray
+    import time as _time
+    for _ in range(60):
+        try:
+            ray.init(address=RAY_ADDRESS, log_to_driver=False)
+            return
+        except Exception:
+            _time.sleep(2)
+    raise RuntimeError(f"Ray is not reachable at {RAY_ADDRESS}")
 
 
 @asynccontextmanager
@@ -30,6 +46,10 @@ async def lifespan(app: FastAPI):
     app.state.pool = await asyncpg.create_pool(os.environ["DATABASE_URL"], min_size=2, max_size=WORKERS + 10)
     app.state.queue = asyncio.Queue(maxsize=QUEUE_CAPACITY)
     app.state.jobs = {}
+    app.state.ray_ready = asyncio.Event()
+    if EXECUTION == "ray":
+        app.state.ray_connect = asyncio.create_task(asyncio.to_thread(connect_ray))
+        app.state.ray_connect.add_done_callback(lambda t: t.exception() or app.state.ray_ready.set())
     app.state.workers = [asyncio.create_task(worker()) for _ in range(WORKERS)]
     yield
     for w in app.state.workers:
@@ -126,6 +146,8 @@ async def health():
         "queue_capacity": QUEUE_CAPACITY,
         "workers": sum(not w.done() for w in app.state.workers),
         "rating_sync": rating.RATING_SYNC,
+        "execution": EXECUTION,
+        "ray_connected": app.state.ray_ready.is_set(),
     }
 
 
@@ -167,6 +189,32 @@ async def get_player_rating(player_id: uuid.UUID):
     if row is None:
         raise ProblemError(404, "Player not found", f"No rating for player {player_id}")
     return to_json(row)
+
+
+class EffectIn(BaseModel):
+    request_id: uuid.UUID
+    match_id: uuid.UUID
+    winner_id: uuid.UUID
+    loser_id: uuid.UUID
+    season: str = Field(min_length=1, max_length=32)
+
+
+@app.post("/internal/effects", dependencies=[Depends(auth)])
+async def receive_effect(body: EffectIn):
+    decision = await rating.apply_effect(app.state.pool, body.request_id, body.match_id, body.winner_id,
+                                         body.loser_id, body.season)
+    print(json.dumps({"time": datetime.now(timezone.utc).isoformat(), "event": "effect.received",
+                      "match_id": str(body.match_id), "request_id": str(body.request_id),
+                      "repeat": decision["repeat"], "awarded": decision["awarded"]}), flush=True)
+    return decision
+
+
+@app.get("/v1/season-awards", dependencies=[Depends(auth)])
+async def list_season_awards(season: str = SEASON):
+    rows = await app.state.pool.fetch(
+        "SELECT player_id, season, match_id, request_id, awarded_at FROM season_award "
+        "WHERE season = $1 ORDER BY awarded_at, player_id", season)
+    return {"season": season, "count": len(rows), "items": [to_json(r) for r in rows]}
 
 
 class ComputeIn(BaseModel):
@@ -213,15 +261,34 @@ async def set_state(req_id: uuid.UUID, state: str, reason: str | None = None):
 
 
 async def verify_on_game_server(body: MatchResultIn) -> bool:
-    await asyncio.sleep(random.uniform(0.1, 0.5))
-    return random.random() > 0.05
+    rnd = random.Random(str(body.match_id))
+    await asyncio.sleep(rnd.uniform(0.1, 0.5))
+    return rnd.random() > 0.05
+
+
+async def run_on_ray(req_id: uuid.UUID, body: MatchResultIn) -> dict:
+    import ray
+    import tasks
+    await app.state.ray_ready.wait()
+    ref = tasks.process_match.remote(str(req_id), str(body.match_id), str(body.winner_id),
+                                     str(body.loser_id), SEASON)
+    return await asyncio.to_thread(ray.get, ref, timeout=RAY_TIMEOUT_S)
+
+
+async def run_locally(req_id: uuid.UUID, body: MatchResultIn) -> dict:
+    if not await verify_on_game_server(body):
+        return {"verified": False}
+    decision = await rating.apply_effect(app.state.pool, req_id, body.match_id, body.winner_id,
+                                         body.loser_id, SEASON)
+    return {"verified": True, "decision": decision}
 
 
 async def process(req_id: uuid.UUID, body: MatchResultIn):
     await set_state(req_id, "processing")
-    if not await verify_on_game_server(body):
+    result = await (run_on_ray(req_id, body) if EXECUTION == "ray" else run_locally(req_id, body))
+    if not result["verified"]:
         await set_state(req_id, "rejected", "game server did not confirm the result")
-    elif await rating.apply_rating(app.state.pool, req_id, body.match_id, body.winner_id, body.loser_id):
+    elif result["decision"]["request_id"] == str(req_id):
         await set_state(req_id, "done")
     else:
         await set_state(req_id, "rejected", "result for this match is already recorded")
