@@ -5,6 +5,8 @@ import time
 import httpx
 import ray
 
+from faults import fault
+
 RECEIVER_URL = os.getenv("RECEIVER_URL", "http://api:8000")
 API_TOKEN = os.getenv("API_TOKEN", "dev-token")
 TASK_RETRIES = int(os.getenv("TASK_RETRIES", "3"))
@@ -26,4 +28,5 @@ def process_match(request_id: str, match_id: str, winner_id: str, loser_id: str,
                        headers={"Authorization": f"Bearer {API_TOKEN}"}, timeout=30)
     reply.raise_for_status()
     decision = reply.json()
+    fault("after_effect_before_ack")
     return {"verified": True, "decision": decision, "pid": os.getpid()}
