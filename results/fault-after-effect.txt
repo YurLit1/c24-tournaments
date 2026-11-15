@@ -1,0 +1,11 @@
+execution=ray ray_connected=True
+match_id=38e97051-4b5b-4f3f-b9cd-229eb7d3c43c
+final state: done after 1.1 s
+fault.hit lines in Ray worker logs: 0 -> 1; flag file still armed: False
+effect deliveries to the receiver: 2
+    {"time": "2026-11-10T19:31:26.923213+00:00", "event": "effect.received", "match_id": "38e97051-4b5b-4f3f-b9cd-229eb7d3c43c", "request_id": "86008de9-ba58-4494-969d-ed88f8b4682a", "repeat": false, "awarded": false}
+    {"time": "2026-11-10T19:31:27.685623+00:00", "event": "effect.received", "match_id": "38e97051-4b5b-4f3f-b9cd-229eb7d3c43c", "request_id": "86008de9-ba58-4494-969d-ed88f8b4682a", "repeat": true, "awarded": false}
+rating effects for this match (match_result_applied): 1
+season awards for (00000000-0000-0000-0000-000000000007, 2026-autumn): 1
+invariant_ok: True
+ONE EFFECT AFTER RETRY, INVARIANT HOLDS
